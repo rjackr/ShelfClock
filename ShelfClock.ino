@@ -1,4 +1,6 @@
-
+// Uncoment your sensor
+#define SensorDHT
+//#define SensorBMx
 #include <NonBlockingRtttl.h>
 #include<MegunoLink.h>
 #include <FastLED.h>
@@ -6,7 +8,12 @@
 #include "WebServer.h"
 #include <FS.h>     
 #include <HTTPUpdateServer.h>
-#include "DHT.h"
+#ifdef SensorDHT
+  #include "DHT.h"
+#endif
+#ifdef SensorBMx
+  #include <BMx280I2C.h>
+#endif
 #include <Preferences.h>
 #include <ESPmDNS.h>
 #include <Update.h>
@@ -16,11 +23,16 @@
 
 #define LED_TYPE  WS2812B
 #define COLOR_ORDER GRB
-#define DHTTYPE DHT11         // DHT 11 tempsensor
+#ifdef SensorDHT
+  #define DHTTYPE DHT11         // DHT 11 tempsensor
+  #define DHT_PIN 18            // temp sensor pin
+#endif
+#ifdef SensorBMx
+  #define BMX280_ADDRESS 0x76
+#endif
 #define MIC_IN_PIN 34         // Use 34 for mic input
 #define AUDIO_GATE_PIN 15     // for sound gate input trigger
 #define BUZZER_PIN 16         // peizo speaker
-#define DHT_PIN 18            // temp sensor pin
 #define LED_PIN 2             // led control pin
 #define PHOTORESISTER_PIN 36  // select the analog input pin for the photoresistor
 #define MILLI_AMPS 2400 
@@ -111,7 +123,12 @@ int averageAudioInput = 0;
 struct tm timeinfo; 
 CRGB LEDs[NUM_LEDS];
 Preferences preferences;
-DHT dht(DHT_PIN, DHTTYPE);
+#ifdef SensorDHT
+  DHT dht(DHT_PIN, DHTTYPE);
+#endif
+#ifdef SensorBMx
+  BMx280I2C bmx280(BMX280_ADDRESS);
+#endif
 WebServer server(80);
 HTTPUpdateServer httpUpdateServer;
 RTC_DS3231 rtc;
@@ -472,9 +489,29 @@ void setup() {
   pinMode(MIC_IN_PIN, INPUT);  //setup microphone
 
   // init temp & humidity sensor
+#ifdef SensorDHT
   Serial.println(F("DHTxx test!"));
   dht.begin();
+#endif
 
+#ifdef SensorBMx
+  Serial.println(F("BMx test!"));
+  if (!bmx280.begin()) {
+    Serial.println("begin() failed. check your BMx280 Interface and I2C Address.");
+  }
+  else
+    if (bmx280.isBME280())
+      Serial.println("sensor is a BME280");
+    else
+      Serial.println("sensor is a BMP280");
+                  
+  bmx280.resetToDefaults();
+  bmx280.writeOversamplingPressure(BMx280MI::OSRS_P_x16);
+  bmx280.writeOversamplingTemperature(BMx280MI::OSRS_T_x16);
+  //if sensor is a BME280, set an oversampling setting for humidity measurements.
+  if (bmx280.isBME280())
+    bmx280.writeOversamplingHumidity(BMx280MI::OSRS_H_x16);
+#endif
   //setup LEDs
   FastLED.addLeds<LED_TYPE,LED_PIN,COLOR_ORDER>(LEDs,NUM_LEDS).setCorrection(TypicalLEDStrip);
   FastLED.setBrightness(255);
@@ -961,6 +998,7 @@ void displayDateMode() {  //main date function
 
 void displayTemperatureMode() {   //miain temp function
   currentMode = 0;
+#ifdef SensorDHT
   float h = dht.readHumidity();        // read humidity
   float sensorTemp = dht.readTemperature();     // read temperature
   float f = dht.readTemperature(true);
@@ -968,6 +1006,19 @@ void displayTemperatureMode() {   //miain temp function
     Serial.println(F("Failed to read from DHT sensor!"));
     return;
   }
+#endif
+
+#ifdef SensorBMx
+  float sensorTemp = bmx280.readTemperature();     // measure and read temperature
+  float h = 0;
+  if (bmx280.isBME280())
+    h = bmx280.getHumidity();        // read humidity
+    
+  if (isnan(h) || isnan(sensorTemp)) {
+    Serial.println(F("Failed to read from BMx sensor!"));
+    return;
+  }
+#endif
   float correctedTemp = sensorTemp + temperatureCorrection;
   if (temperatureSymbol == 39) {  correctedTemp = ((sensorTemp * 1.8000) + 32) + temperatureCorrection; }
   byte t1 = 0;
@@ -1057,13 +1108,29 @@ void displayTemperatureMode() {   //miain temp function
 
 void displayHumidityMode() {   //main humidity function
   currentMode = 0;
-  float sensorHumi = dht.readHumidity();        // read humidity
+  float sensorHumi;
+#ifdef SensorDHT
+  sensorHumi = dht.readHumidity();        // read humidity
   float t = dht.readTemperature();     // read temperature
   float f = dht.readTemperature(true);
   if (isnan(sensorHumi) || isnan(t) || isnan(f)) {
     Serial.println(F("Failed to read from DHT sensor!"));
     return;
   }
+#endif
+
+#ifdef SensorBMx
+  float t = bmx280.readTemperature();     // measure and read temperature
+  sensorHumi = NAN;
+  if (bmx280.isBME280())
+    sensorHumi = bmx280.getHumidity();        // read humidity
+    
+  if (isnan(sensorHumi) || isnan(t)) {
+    Serial.println(F("Failed to read from BMx sensor!"));
+    return;
+  }
+#endif
+  
   byte t1 = 0;
   byte t2 = 0;
   int humiDecimal = sensorHumi * 10;
@@ -1138,7 +1205,7 @@ void displayScrollMode(){   //scrollmode for displaying clock things not just te
     char strDate[10];
     char strYear[10];
     char strTemp[15];
-    char strHumitidy[10];
+    char strHumitidy[20];
     char strIPaddy[20];
     char processedText[255];
     char DOW[10]; 
@@ -1147,10 +1214,24 @@ void displayScrollMode(){   //scrollmode for displaying clock things not just te
     int mday = timeinfo.tm_mday;
     int mont = timeinfo.tm_mon + 1;
     int year = timeinfo.tm_year +1900;
+	float p = 0;
+#ifdef SensorDHT	
     float h = dht.readHumidity();        // read humidity
     float sensorTemp = dht.readTemperature();     // read temperature
     float f = dht.readTemperature(true);
     if (isnan(h) || isnan(sensorTemp) || isnan(f)) {  Serial.println(F("Failed to read from DHT sensor!"));  return;  }
+#endif
+
+#ifdef SensorBMx
+    float sensorTemp = bmx280.readTemperature();     // read temperature
+    p = bmx280.getPressure();
+    float h = 0;
+    if (bmx280.isBME280())
+      h = bmx280.getHumidity();        // read humidity
+
+    if (isnan(h) || isnan(sensorTemp) || isnan(p)) {  Serial.println(F("Failed to read from BMx sensor!"));  return;  }
+    p = p / 100; // convert to hPa
+#endif
     float correctedTemp = sensorTemp + temperatureCorrection;
     if (temperatureSymbol == 39) {  correctedTemp = ((sensorTemp * 1.8000) + 32) + temperatureCorrection; }
     if (timeinfo.tm_wday == 1)    {sprintf(DOW,"%s","Mon    ");}
@@ -1163,8 +1244,18 @@ void displayScrollMode(){   //scrollmode for displaying clock things not just te
     sprintf(strTime, "%.2d%.2d    ", hour, mins);  //1111
     sprintf(strDate, "%.2d-%.2d    ", mont, mday);  //10-22
     sprintf(strYear, "%d    ", year);  //2021
-    sprintf(strTemp, "%.1f^F    ", correctedTemp );  //98_6 ^F
-    sprintf(strHumitidy, "%.0fH    ", h);  //48_6 H
+    if (temperatureSymbol == 39)
+      sprintf(strTemp, "%.1f^F ", correctedTemp );  //98_6 ^F
+    else
+      sprintf(strTemp, "%.1f^C ", correctedTemp );  //25_3 ^C
+    
+    if (h > 0 && p == 0)
+	  sprintf(strHumitidy, "%.0f%%", h);  //48_6 H
+	else if (h > 0 && p > 0)
+	  sprintf(strHumitidy, "%.0f%% %.0fhPA", h, p);  //48_6 H 998 P
+	else
+	  sprintf(strHumitidy, "%.0fhPA", p);  // 998 P
+  
     sprintf(strIPaddy, "%s", WiFi.localIP().toString().c_str());  //192_168_0_10
     strcpy(processedText, " ");
     if (scrollOptions1 == 1)    {strcat(processedText, strTime);}
@@ -3536,8 +3627,17 @@ void loadWebPageHandlers() {
     DateTime now = rtc.now();
     char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
     char monthsOfTheYear[12][12] = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"};
+#ifdef SensorDHT
     int humidTemp = dht.readHumidity();        // read humidity
     float sensorTemp = dht.readTemperature();     // read temperature
+#endif
+
+#ifdef SensorBMx
+    float sensorTemp = bmx280.readTemperature();     // read temperature
+    int humidTemp = 0;
+    if (bmx280.isBME280())
+      humidTemp = bmx280.getHumidity();        // read humidity
+#endif
     //DS3231 RTC    
     sprintf(tempString, "%s", daysOfTheWeek[now.dayOfTheWeek()]);strcpy(tempRTC, tempString);
     strcat(tempRTC, ", ");
@@ -3668,8 +3768,14 @@ void loadWebPageHandlers() {
     strcat(webString, "<br>daysUptime=");sprintf(tempString, "%d", daysUptime);strcat(webString, tempString);
     strcat(webString, "<br>decay_check=");sprintf(tempString, "%d", decay_check);strcat(webString, tempString);
     strcat(webString, "<br>decay=");sprintf(tempString, "%d", decay);strcat(webString, tempString);
+#ifdef SensorDHT	
     strcat(webString, "<br>DHT_PIN=");sprintf(tempString, "%d", DHT_PIN);strcat(webString, tempString);
     strcat(webString, "<br>DHTTYPE=");sprintf(tempString, "%d", DHTTYPE);strcat(webString, tempString);
+#endif
+
+#ifdef SensorBMx
+    strcat(webString, "<br>BMX280_ADDRESS=");sprintf(tempString, "%d", BMX280_ADDRESS);strcat(webString, tempString);
+#endif
     strcat(webString, "<br>dotsOn=");sprintf(tempString, "%d", dotsOn);strcat(webString, tempString);
     strcat(webString, "<br>DSTime=");sprintf(tempString, "%d", DSTime);strcat(webString, tempString);
     strcat(webString, "<br>endCountDownMillis=");sprintf(tempString, "%d", endCountDownMillis);strcat(webString, tempString);
