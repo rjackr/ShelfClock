@@ -257,6 +257,7 @@ function getcolonType() {
      if (this.responseText == 0) {document.getElementById("colonType1").checked = true;}
      if (this.responseText == 1) {document.getElementById("colonType2").checked = true;}
      if (this.responseText == 2) {document.getElementById("colonType3").checked = true;}
+     if (this.responseText == 3) {document.getElementById("colonType4").checked = true;}
     }
   };
   xhttp.open("GET", "getcolonType", true);
@@ -903,6 +904,8 @@ function startup() {
   colonType2.addEventListener("input", updateColonType, false);
   colonType3 = document.querySelector("#colonType3");
   colonType3.addEventListener("input", updateColonType, false);
+  colonType4 = document.querySelector("#colonType4");
+  colonType4.addEventListener("input", updateColonType, false);
   
   timezoneSetting = document.querySelector("#timezoneSelect");
   timezoneSetting.addEventListener("input", updateTimezoneSettings, false); 
@@ -1687,6 +1690,8 @@ function setDateTime() {
 							<input type="radio" id="colonType2" name="colonType" value="1"> Use Bar "2<strong>|</strong>53"
 							<br>
 							<input type="radio" id="colonType3" name="colonType" value="2"> Use Period "2<strong>.</strong>53"
+							<br>
+							<input type="radio" id="colonType4" name="colonType" value="3"> Disabled
 						</div>
 						<br>	
 						<strong>Timezone Selection:</strong>
