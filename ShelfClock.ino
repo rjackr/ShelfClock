@@ -145,6 +145,18 @@ RTC_DS3231 rtc;
 AutoConnect      Portal(server);
 AutoConnectConfig  Config;
 
+
+//how many clients should be able to telnet to this ESP
+#define MAX_SRV_CLIENTS 1
+#define TELNET_PORT 23
+#define MAX_LENGTH_TELNET_CMD 10
+WiFiServer tserver(TELNET_PORT);
+WiFiClient serverClients[MAX_SRV_CLIENTS];
+bool clientsLogged[MAX_SRV_CLIENTS];
+String inputString[MAX_SRV_CLIENTS];
+byte cntlogin[MAX_SRV_CLIENTS];
+String TelnetClientPW[MAX_SRV_CLIENTS] = {"1234"}; // Note: Initially this code was written for only one client
+
 // global settings that get saved to flash via preffs
 byte cd_r_val = 0;
 byte cd_g_val = 255;
@@ -470,6 +482,174 @@ byte numbers[] = {
    0b1010010    //  [96] 3-lines (special pad)
    };
 
+void telnetInit()
+{
+  int i;
+
+  for (i = 0; i < MAX_SRV_CLIENTS; i++) {
+    clientsLogged[i] = false;
+    inputString[i].reserve(MAX_LENGTH_TELNET_CMD);
+    cntlogin[i] = 0;
+  }
+
+  tserver.begin();
+  tserver.setNoDelay(true);
+
+  //Serial.print("Telnet server initialized!");
+  //Serial.print(" (Port: ");
+  //Serial.print(TELNET_PORT, DEC);
+  //Serial.println(")");
+  //Serial.println("You can use the PuTTY.exe or Hercules SETUP utility!");
+  //Serial.println("Get here: https://www.putty.org/");
+  //Serial.println("Or here: https://www.hw-group.com/software/hercules-setup-utility");
+  //Serial.println("Hercules SETUP utility is good for debug");
+  //Serial.println("(You can use TCP client for Telnet)");
+}
+
+void prn(String s) {
+  uint8_t i;
+  for (i = 0; i < MAX_SRV_CLIENTS; i++) {
+    if (serverClients[i] && serverClients[i].connected())
+      serverClients[i].print(s);
+  }
+}
+
+void telnet()
+{
+  uint8_t i, j;
+  char c;
+
+  //check if there are any new clients
+  if (tserver.hasClient()) {
+    for (i = 0; i < MAX_SRV_CLIENTS; i++) {
+      //find free/disconnected spot
+      if (!serverClients[i] || !serverClients[i].connected()) {
+        if (serverClients[i]) serverClients[i].stop();
+        serverClients[i] = tserver.available();
+        Serial.print("New client: "); Serial.println(i);
+        clientsLogged[i] = false;
+        cntlogin[i] = 0;
+        if (serverClients[i] && serverClients[i].connected()) {
+          serverClients[i].println("ESP8266 NodeMCU V3 Lolin");
+          serverClients[i].print("Login: ");
+          while (serverClients[i].available()) {
+            c = (char)serverClients[i].read();
+          }
+          inputString[i] = "";
+          delay(1);
+        }
+        break;
+      }
+    }
+    //no free/disconnected spot so reject
+    if ( i == MAX_SRV_CLIENTS) {
+      WiFiClient serverClients = tserver.available();
+      serverClients.stop();
+      Serial.println("Connection rejected ");
+    }
+  }
+  //check clients for password and data
+  for (i = 0; i < MAX_SRV_CLIENTS; i++) {
+    if (serverClients[i] && serverClients[i].connected()) {
+      if (serverClients[i].available()) {
+        //get data from the telnet client and push it to the UART
+        while (serverClients[i].available()) {
+          c = (char)serverClients[i].read();
+          if (clientsLogged[i] == false) {
+            if (inputString[i].length() >= MAX_LENGTH_TELNET_CMD)
+            {
+              inputString[i] = "";
+            } else {
+              if ((c != '\r') & (c != '\n')) inputString[i] += c;
+            }
+
+            if (c == '\n') {
+              if (inputString[i] == TelnetClientPW[i]) {
+                serverClients[i].println("Access allowed.");
+                serverClients[i].print("$");
+                clientsLogged[i] = true;
+              } else {
+                if (cntlogin[i] < 3) {
+                  cntlogin[i]++;
+                  serverClients[i].print("Incorrect password.\r\nLogin: ");
+                } else {
+                  serverClients[i].println("Access denied. Connection rejected.");
+                  serverClients[i].stop();
+                  Serial.println("\r\nAccess denied. Connection rejected.");
+                }
+              }
+              inputString[i] = "";
+            }
+          } else {
+            if (inputString[i].length() >= MAX_LENGTH_TELNET_CMD)
+            {
+              inputString[i] = "";
+            } else {
+              if ((c != '\r') & (c != '\n')) inputString[i] += c;
+            }
+            //if ((c != '\r') & (c != '\n')) serverClients[i].write(c); //echo
+            if (c == '\n') {
+              if ( inputString[i].startsWith("led ") ) {
+                
+                int bri = inputString[i].substring(4).toInt();
+                if ( (bri >= 0) and (bri <= 255) ) {
+                  lightSensorValue = bri;
+                  FastLED.setBrightness(bri);
+                  serverClients[i].print(bri);
+                  serverClients[i].print(" Ok");
+                }
+                else {
+                  serverClients[i].print("[0..255]");  
+                }
+                
+              }
+              else if (inputString[i] == (String)("0")) {
+                allBlank();     // and measure sensor brightness
+              }
+              else if (inputString[i] == (String)("1")) {
+                displayNumber(8, 3, hourColor);     // Turn on some sample digits to check brightness
+                displayNumber(8, 5, hourColor);
+                
+              }
+              else if (inputString[i] == (String)("reset")) {
+                serverClients[i].print("Rebooting");
+                for (j = 0; j < 10; j++) {
+                  delay(250);
+                  serverClients[i].print(".");
+                }
+                serverClients[i].stop();
+                delay(250);
+                ESP.restart();
+              }
+              serverClients[i].print("\r\n$");
+              inputString[i] = "";
+            }
+          }
+          Serial.write(c);
+        }
+      }
+    }
+    //check UART for data
+    if (Serial.available()) {
+      size_t len = Serial.available();
+      uint8_t sbuf[len];
+      Serial.readBytes(sbuf, len);
+      for (i = 0; i < len; i++) {
+        Serial.write(sbuf[i]);
+      }
+      if (sbuf[len - 1] == 13) Serial.println();
+      //push UART data to all connected telnet clients
+      for (i = 0; i < MAX_SRV_CLIENTS; i++) {
+        if (serverClients[i] && serverClients[i].connected()) {
+          serverClients[i].write(sbuf, len);
+          if (sbuf[len - 1] == 13) serverClients[i].println();
+          delay(1);
+        }
+      }
+    }
+  }
+}
+
 
 void setup() {
   Serial.begin(115200);
@@ -537,10 +717,11 @@ void setup() {
   Portal.config(Config);      
 
   Serial.println();
-  WiFi.hostname("shelfclock"); //set hostname
+  WiFi.hostname(host); //set hostname
 
   // setup AutoConnect to control WiFi
   if (Portal.begin()) {
+    telnetInit();
     Serial.println("WiFi connected: " + WiFi.localIP().toString());
    }  
 
@@ -643,6 +824,8 @@ void setup() {
 void loop(){
   server.handleClient(); 
   Portal.handleRequest(); 
+  telnet();
+  
   if (WiFi.status() == WL_IDLE_STATUS) {
    ESP.restart();
    delay(1000);
@@ -1799,6 +1982,9 @@ void GetBrightnessLevel() {   //samples the photoresister and set brightness
     {
      sumBrightness += photoresisterReadings[i];  // add all the current readings together
     }
+    char buffer[40];
+    sprintf(buffer, "%d", sumBrightness / PHOTO_SAMPLES);
+    prn(buffer);
  //   Serial.println(analogRead(PHOTORESISTER_PIN));
  lightSensorValue = multiMap<int>(sumBrightness / PHOTO_SAMPLES, photo_in, photo_out, PHOTO_SIZE);
 //    lightSensorValue = 255 - (((sumBrightness / PHOTO_SAMPLES) * (254)) / 4095);  //linear conversion of 0-4095 to 255 to 40, after getting the average of the readings
@@ -1808,7 +1994,10 @@ void GetBrightnessLevel() {   //samples the photoresister and set brightness
       FastLED.setBrightness(brightness);
     } else if (brightness == 10) {  //auto-dim use the value from above
       FastLED.setBrightness(lightSensorValue);     
+      
     } 
+      sprintf(buffer, "\t%d\r\n", lightSensorValue);
+      prn(buffer);  //Print to telnet client
 }  // end of auto-brightness
 
 
