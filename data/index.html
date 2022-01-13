@@ -88,6 +88,13 @@ function showSpectrum8() {$.post("/goSpectrumMode", { spectrumMode: 8 }); consol
 function showSpectrum9() {$.post("/goSpectrumMode", { spectrumMode: 9 }); console.log(9); }
 function showSpectrum10() {$.post("/goSpectrumMode", { spectrumMode: 10 }); console.log(10); }
 function showSpectrum11() {$.post("/goSpectrumMode", { spectrumMode: 11 }); console.log(11); }
+function showSpectrum12() {$.post("/goSpectrumMode", { spectrumMode: 12 }); console.log(12); }
+function showSpectrum13() {$.post("/goSpectrumMode", { spectrumMode: 13 }); console.log(13); }
+function showSpectrum14() {$.post("/goSpectrumMode", { spectrumMode: 14 }); console.log(14); }
+function showSpectrum15() {$.post("/goSpectrumMode", { spectrumMode: 15 }); console.log(15); }
+function showSpectrum16() {$.post("/goSpectrumMode", { spectrumMode: 16 }); console.log(16); }
+function showSpectrum17() {$.post("/goSpectrumMode", { spectrumMode: 17 }); console.log(17); }
+function showSpectrum18() {$.post("/goSpectrumMode", { spectrumMode: 18 }); console.log(18); }
 function displayOff() {$.post("/goDisplayOffMode");}
 function scrollingMode() {$.post("/goScrollingMode");}
 function getpreset1() {$.post("/getPreset1");}
@@ -556,7 +563,7 @@ window.addEventListener("load", myInit, true); function myInit(){
 				<div class="card-body">
 					<form>
 						<div style="text-align: center;">
-							<strong>Spectrum Analyzer</strong>
+							<strong>Envelope Analyzer</strong>
 						</div>
 						<br>
 						<form>
@@ -587,6 +594,34 @@ window.addEventListener("load", myInit, true); function myInit(){
 						<form>
 							<input type="button" class="favorite purple-styled" value="Horizontal L" onclick="showSpectrum9()">
 							<input type="button" class="favorite purple-styled" value="Horizontal R" onclick="showSpectrum11()">
+						</form>
+						<br>
+					</form>
+				</div>
+			</div>
+		</div>
+		<div class="row" style="margin: 10px 10px;">
+			<div class="card">		
+				<div class="card-body">
+					<form>
+						<div style="text-align: center;">
+							<strong>Spectrum Analyzer</strong>
+						</div>
+						<br>
+						<form>
+							<input type="button" class="favorite styled" value="Rainbow" onclick="showSpectrum12()">
+							<input type="button" class="favorite styled" value="Outrun Peak" onclick="showSpectrum13()">
+						</form>
+						<form>
+							<input type="button" class="favorite styled" value="Purple" onclick="showSpectrum14()">
+							<input type="button" class="favorite styled" value="Center" onclick="showSpectrum15()">
+						</form>
+						<form>
+							<input type="button" class="favorite styled" value="Changing" onclick="showSpectrum16()">
+							<input type="button" class="favorite styled" value="Waterfall" onclick="showSpectrum17()">
+						</form>
+						<form>
+							<input type="button" class="favorite styled" value="Auto cycle" onclick="showSpectrum18()">
 						</form>
 					</form>
 				</div>

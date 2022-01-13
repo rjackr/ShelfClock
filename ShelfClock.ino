@@ -30,8 +30,8 @@
 #ifdef SensorBMx
   #define BMX280_ADDRESS 0x76
 #endif
-#define MIC_IN_PIN 34         // Use 34 for mic input
-#define AUDIO_GATE_PIN 15     // for sound gate input trigger
+#define MIC_IN_PIN 34         // Use 34 for mic input (envelope pin)
+#define AUDIO_GATE_PIN 15     // for sound gate input trigger (gate pin)
 #define BUZZER_PIN 16         // peizo speaker
 #define LED_PIN 2             // led control pin
 #define PHOTORESISTER_PIN 36  // select the analog input pin for the photoresistor
@@ -49,13 +49,17 @@
 #define PHOTO_SAMPLES 1  //number of samples to take from the photoresister
 
 #if LEDS_PER_SEGMENT == 6
-#define seg(n) n*LEDS_PER_SEGMENT, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+5
+ #define seg(n) n*LEDS_PER_SEGMENT, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+5
+ #define nseg(n) n*LEDS_PER_SEGMENT+5, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT
 #elif LEDS_PER_SEGMENT == 7
-#define seg(n) n*LEDS_PER_SEGMENT, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+5, n*LEDS_PER_SEGMENT+6
+ #define seg(n) n*LEDS_PER_SEGMENT, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+5, n*LEDS_PER_SEGMENT+6
+ #define nseg(n) n*LEDS_PER_SEGMENT+6, n*LEDS_PER_SEGMENT+5, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT
 #elif LEDS_PER_SEGMENT == 8
-#define seg(n) n*LEDS_PER_SEGMENT, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+5, n*LEDS_PER_SEGMENT+6, n*LEDS_PER_SEGMENT+7
+ #define seg(n) n*LEDS_PER_SEGMENT, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+5, n*LEDS_PER_SEGMENT+6, n*LEDS_PER_SEGMENT+7
+ #define nseg(n) n*LEDS_PER_SEGMENT+7, n*LEDS_PER_SEGMENT+6, n*LEDS_PER_SEGMENT+5, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT
 #elif LEDS_PER_SEGMENT == 9
-#define seg(n) n*LEDS_PER_SEGMENT, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+5, n*LEDS_PER_SEGMENT+6, n*LEDS_PER_SEGMENT+7, n*LEDS_PER_SEGMENT+8
+ #define seg(n) n*LEDS_PER_SEGMENT, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+5, n*LEDS_PER_SEGMENT+6, n*LEDS_PER_SEGMENT+7, n*LEDS_PER_SEGMENT+8
+ #define nseg(n) n*LEDS_PER_SEGMENT+8, n*LEDS_PER_SEGMENT+7, n*LEDS_PER_SEGMENT+6, n*LEDS_PER_SEGMENT+5, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT
 #else
  #error "Not supported Leds per segment. You need to add definition of seg(n) with needed number of elements according to formula above"
 #endif
@@ -67,6 +71,80 @@
 #define digit4 seg(20), seg(21), seg(22), seg(23), seg(24), seg(25), seg(26)
 #define fdigit5 seg(22), seg(27), seg(30), seg(35), seg(28), seg(23), seg(29)
 #define digit6 seg(30), seg(31), seg(32), seg(33), seg(34), seg(35), seg(36)
+
+#include  <driver/adc.h>
+#include <arduinoFFT.h>				// Don't forget to change CPU Frequency to 240MHz in Arduino board settings
+#define SAMPLES         512          // Must be a power of 2
+#define SAMPLING_FREQ   40000         // Hz, must be 40000 or less due to ADC conversion time. Determines maximum frequency that can be analysed by the FFT Fmax=sampleF/2.
+#define AUDIO_IN_PIN    32            // Analog audio in (audio pin)
+#define NUM_BANDS       8            // To change this, you will need to change the bunch of if statements describing the mapping from bins to bands
+#define NOISE           500           // Used as a crude noise filter, values below this are ignored
+#define TOP            (LEDS_PER_SEGMENT * 2)                // Don't allow the bars to go offscreen
+// Sampling and FFT stuff
+unsigned int sampling_period_us;
+byte peak[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};              // The length of these arrays must be >= NUM_BANDS
+int oldBarHeights[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+int bandValues[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+double vReal[SAMPLES];
+double vImag[SAMPLES];
+unsigned long newTime;
+long Amplitude = 1000;
+arduinoFFT FFT = arduinoFFT(vReal, vImag, SAMPLES, SAMPLING_FREQ);
+DEFINE_GRADIENT_PALETTE( purple_gp ) {
+  0,   0, 212, 255,   //blue
+255, 179,   0, 255 }; //purple
+DEFINE_GRADIENT_PALETTE( outrun_gp ) {
+  0, 141,   0, 100,   //purple
+127, 255, 192,   0,   //yellow
+255,   0,   5, 255 };  //blue
+DEFINE_GRADIENT_PALETTE( greenblue_gp ) {
+  0,   0, 255,  60,   //green
+ 64,   0, 236, 255,   //cyan
+128,   0,   5, 255,   //blue
+192,   0, 236, 255,   //cyan
+255,   0, 255,  60 }; //green
+DEFINE_GRADIENT_PALETTE( redyellow_gp ) {
+  0,   200, 200,  200,   //white
+ 64,   255, 218,    0,   //yellow
+128,   231,   0,    0,   //red
+192,   255, 218,    0,   //yellow
+255,   200, 200,  200 }; //white
+CRGBPalette16 purplePal = purple_gp;
+CRGBPalette16 outrunPal = outrun_gp;
+CRGBPalette16 greenbluePal = greenblue_gp;
+CRGBPalette16 heatPal = redyellow_gp;
+uint8_t colorTimer = 0;
+int buttonPushCounter = 0;
+
+
+/*
+b     b     b     b     b     b     b     b
+a     a     a     a     a     a     a     a
+r     r     r     r     r     r     r     r
+0     1     2     3     4     5     6     7
+  34    28    24    18    14     8     4
+ →→→ →→→  →→→ →→→ →→→ →→→  →→→
+↑     ↓     ↑     ↓     ↑     ↓     ↑     ↓
+↑33   ↓35   ↑23   ↓25   ↑13   ↓15   ↑3    ↓5
+↑     ↓     ↑     ↓     ↑     ↓     ↑     ↓
+↑ 36  ↓ 29  ↑ 26  ↓ 19  ↑ 16  ↓   9 ↑  6  ↓
+ ←←← ←←←  ←←← ←←← ←←← ←←←  ←←←
+↑     ↓     ↑     ↓     ↑     ↓     ↑     ↓
+↑32   ↓30   ↑22   ↓20   ↑12   ↓10   ↑2    ↓0
+↑     ↓     ↑     ↓     ↑     ↓     ↑     ↓
+↑ 31  ↓ 27  ↑ 21  ↓ 17  ↑ 11  ↓  7  ↑  1  ↓
+ ←←← ←←←  ←←← ←←← ←←← ←←←  ←←←
+
+*/
+#define bar0 seg(32), seg(33)
+#define bar1 nseg(30), nseg(35)
+#define bar2 seg(22), seg(23)
+#define bar3 nseg(20), nseg(25)
+#define bar4 seg(12), seg(13)
+#define bar5 nseg(10), nseg(15)
+#define bar6 seg(2), seg(3)
+#define bar7 nseg(0), nseg(5)
+const uint16_t ANALYZER[(NUMBER_OF_DIGITS+1)*LEDS_PER_SEGMENT*2] = {bar0, bar1, bar2, bar3, bar4, bar5, bar6, bar7};
 
 const char* host = "shelfclock";
 const int   daylightOffset_sec = 3600;
@@ -654,6 +732,8 @@ void telnet()
 void setup() {
   Serial.begin(115200);
 
+  sampling_period_us = round(1000000 * (1.0 / SAMPLING_FREQ));
+
   loadWebPageHandlers();  //load about 900 webpage handlers from the bottom of this sketch
 
   // Initialize SPIFFS 
@@ -677,6 +757,10 @@ void setup() {
   //init audio gate inpute detection
   pinMode(AUDIO_GATE_PIN, INPUT_PULLUP);
   pinMode(MIC_IN_PIN, INPUT);  //setup microphone
+  
+  // setup analog read to avoid spikes
+  adc1_config_width(ADC_WIDTH_12Bit);
+  adc1_config_channel_atten(ADC1_GPIO32_CHANNEL, ADC_ATTEN_DB_11);
 
   // init temp & humidity sensor
 #ifdef SensorDHT
@@ -1597,6 +1681,7 @@ void displayRealtimeMode(){   //main RealtimeModes function, always is running
 
 void SpectrumAnalyzer() {    //mostly from github.com/justcallmekoko/Arduino-FastLED-Music-Visualizer/blob/master/music_visualizer.ino
   currentMode = 0;
+  if (spectrumMode < 12) {
   const TProgmemRGBPalette16 FireColors = {0xFFFFCC, 0xFFFF99, 0xFFFF66, 0xFFFF33, 0xFFFF00, 0xFFCC00, 0xFF9900, 0xFF6600, 0xFF3300, 0xFF3300, 0xFF0000, 0xCC0000, 0x990000, 0x660000, 0x330000, 0x110000};
   const TProgmemRGBPalette16 FireColors2 = {0xFFFF99, 0xFFFF66, 0xFFFF33, 0xFFFF00, 0xFFCC00, 0xFF9900, 0xFF6600, 0xFF3300, 0xFF3300, 0xFF0000, 0xCC0000, 0x990000, 0x660000, 0x330000, 0x110000};
   const TProgmemRGBPalette16 FireColors3 = {0xFFFF66, 0xFFFF33, 0xFFFF00, 0xFFCC00, 0xFF9900, 0xFF6600, 0xFF3300, 0xFF3300, 0xFF0000, 0xCC0000, 0x990000, 0x660000, 0x330000, 0x110000};
@@ -1691,10 +1776,252 @@ void SpectrumAnalyzer() {    //mostly from github.com/justcallmekoko/Arduino-Fas
     if (react > 0)
       react--;
   }
+  }
+  else {
+    if (buttonPushCounter != 5) {
+      // clear analyzer;
+      for (int x=0; x < ((NUMBER_OF_DIGITS+1) *(LEDS_PER_SEGMENT*2)); x++) {
+        LEDs[ANALYZER[x]] = CRGB::Black;
+      }
+    }
+    
+    // Reset bandValues[]
+    for (int i = 0; i<NUM_BANDS; i++){
+      bandValues[i] = 0;
+    }
+
+    // Sample the audio pin
+    for (int i = 0; i < SAMPLES; i++) {
+      newTime = micros();
+      //vReal[i] = analogRead(AUDIO_IN_PIN); // A conversion takes about 9.7uS on an ESP32
+      vReal[i] = adc1_get_raw(ADC1_GPIO32_CHANNEL);
+      vImag[i] = 0;
+      while ((micros() - newTime) < sampling_period_us) { /* chill */ }
+    }
+
+    // Remove spikes
+    for (int i = 1; i < SAMPLES-1; i++) {
+      if (vReal[i] > 4093)
+        if (vReal[i+1] > 4093) {
+          if (i < (SAMPLES-2))
+            vReal[i] = (vReal[i-1] + vReal[i+2]) / 2;
+          else
+            vReal[i] = vReal[i-1];
+        }
+        else 
+          vReal[i] = (vReal[i-1] + vReal[i+1]) / 2;
+    }
+
+	/*long maxr = 0;
+	long minr = 4085;
+    for (int i = 0; i < SAMPLES; i++) {
+		if (maxr < vReal[i]) maxr = vReal[i];
+		if (minr > vReal[i]) minr = vReal[i];
+	}*/
+	
+	//char buffer[15];
+  /*for (int i = 0; i < SAMPLES; i++) {
+    sprintf(buffer, "%d\r\n", (int)vReal[i]);
+    prn(buffer);
+  }
+  prn("0\r\n");*/
+
+    // Compute FFT
+    FFT.DCRemoval();
+    FFT.Windowing(FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+    FFT.Compute(FFT_FORWARD);
+    FFT.ComplexToMagnitude();
+
+    // Analyse FFT results
+    for (int i = 2; i < (SAMPLES/2); i++){       // Don't use sample 0 and only first SAMPLES/2 are usable. Each array element represents a frequency bin and its value the amplitude.
+      if (vReal[i] > NOISE) {                    // Add a crude noise filter
+
+        //8 bands, 12kHz top band
+        if ( i<=3 )           bandValues[0]  += (int)vReal[i];
+        else if ( i<=6 ) bandValues[1]  += (int)vReal[i];
+        else if ( i<=13 ) bandValues[2]  += (int)vReal[i];
+        else if ( i<=27 ) bandValues[3]  += (int)vReal[i];
+        else if ( i<=55 ) bandValues[4]  += (int)vReal[i];
+        else if ( i<=112) bandValues[5]  += (int)vReal[i];
+        else if ( i<=229) bandValues[6]  += (int)vReal[i];
+        else bandValues[7]  += (int)vReal[i];
+
+      }
+    }
+
+    // Process the FFT data into bar heights
+    for (byte band = 0; band < NUM_BANDS; band++) {
+
+      // Scale the bars for the display
+      int barHeight = bandValues[band] / Amplitude;
+      if (barHeight > TOP) {
+        Amplitude += ((barHeight - TOP) /8);
+        //sprintf(buffer, "%d %d %d\r\n", Amplitude, band, (barHeight - TOP));
+        //prn(buffer);
+        barHeight = TOP;
+      }
+
+      // Small amount of averaging between frames
+      barHeight = ((oldBarHeights[band] * 1) + barHeight) / 2;
+
+      // Move peak up
+      if (barHeight > peak[band]) {
+        peak[band] = min(TOP, barHeight);
+      }
+
+      if (spectrumMode < 12 + 6)
+		    buttonPushCounter = spectrumMode - 12;
+        
+      // Draw bars
+      switch (buttonPushCounter) {
+        case 0:
+          rainbowBars(band, barHeight);
+          break;
+        case 1:
+          // No bars on this one
+          break;
+        case 2:
+          purpleBars(band, barHeight);
+          break;
+        case 3:
+          centerBars(band, barHeight);
+          break;
+        case 4:
+          changingBars(band, barHeight);
+          break;
+        case 5:
+          waterfall(band);
+          break;
+      }
+
+      // Draw peaks
+      switch (buttonPushCounter) {
+        case 0:
+          whitePeak(band);
+          break;
+        case 1:
+          outrunPeak(band);
+          break;
+        case 2:
+          whitePeak(band);
+          break;
+        case 3:
+          // No peaks
+          break;
+        case 4:
+          // No peaks
+          break;
+        case 5:
+          // No peaks
+          break;
+      }
+
+      // Save oldBarHeights for averaging later
+      oldBarHeights[band] = barHeight;
+    }
+
+    // Decay peak
+    EVERY_N_MILLISECONDS(60) {
+      for (byte band = 0; band < NUM_BANDS; band++)
+        if (peak[band] > 0) peak[band] -= 1;
+    }
+
+    // Used in some of the patterns
+    EVERY_N_MILLISECONDS(10) {
+      colorTimer++;
+    }
+
+    EVERY_N_SECONDS(1) {
+      if (Amplitude > 500) {
+        Amplitude -= (Amplitude /150);
+        //sprintf(buffer, "%d 0\r\n", Amplitude);
+        //prn(buffer);
+      }
+     /* int audio_input = analogRead(MIC_IN_PIN);
+      char buffer[15];
+      sprintf(buffer, "%d %d  ", Amplitude, audio_input);
+      prn(buffer);*/
+    }
+
+    EVERY_N_SECONDS(10) {
+		// Auto Switch mode
+      if (spectrumMode >= 12 + 6) buttonPushCounter = (buttonPushCounter + 1) % 6;
+    }
+
+    FastLED.show();
+  } // end else spectrumMode < 12
+}
+
+void rainbowBars(int band, int barHeight) {
+  int xStart = LEDS_PER_SEGMENT * 2 * band;
+    for (int y = 0; y < TOP; y++) {
+      if ( barHeight >= y)  
+        LEDs[ANALYZER[xStart + y]] = CHSV(band * (255 / NUM_BANDS), 255, 255);
+      else
+        LEDs[ANALYZER[xStart + y]] = CRGB::Black;  
+    }
+}
+
+void purpleBars(int band, int barHeight) {
+  int xStart = LEDS_PER_SEGMENT * 2 * band;
+    for (int y = 0; y < TOP; y++) {
+      if ( barHeight >= y)  
+        LEDs[ANALYZER[xStart + y]] = ColorFromPalette(purplePal, y * (255 / (barHeight + 1)));
+      else
+        LEDs[ANALYZER[xStart + y]] = CRGB::Black;  
+    }
+}
+
+void changingBars(int band, int barHeight) {
+  int xStart = LEDS_PER_SEGMENT * 2 * band;
+    for (int y = 0; y < TOP; y++) {
+      if ( barHeight >= y)  
+        LEDs[ANALYZER[xStart + y]] = CHSV(y * (255 / (LEDS_PER_SEGMENT*2)) + colorTimer, 255, 255);
+      else
+        LEDs[ANALYZER[xStart + y]] = CRGB::Black;  
+    }
+}
+
+void centerBars(int band, int barHeight) {
+  int xStart = LEDS_PER_SEGMENT * 2 * band;
+  if (barHeight % 2 == 0) barHeight--;
+  int yStart = ((LEDS_PER_SEGMENT * 2 - barHeight) / 2 );
+    for (int y = yStart; y <= (yStart+barHeight); y++) {
+	  int colorIndex = constrain((y - yStart) * (255 / barHeight), 0, 255);
+      //if ( barHeight >= y)  
+        LEDs[ANALYZER[xStart + y]] = ColorFromPalette(heatPal, colorIndex);
+      //else
+        //LEDs[ANALYZER[xStart + y]] = CRGB::Black;  
+    }
 }
 
 
+void whitePeak(int band) {
+  int xStart = LEDS_PER_SEGMENT * 2 * band;
+  int peakHeight = peak[band];
+  LEDs[ANALYZER[xStart + peakHeight]] = CHSV(0,0,255);  
+}
 
+void outrunPeak(int band) {
+  int xStart = LEDS_PER_SEGMENT * 2 * band;
+  int peakHeight = peak[band];
+  LEDs[ANALYZER[xStart + peakHeight]] = ColorFromPalette(outrunPal, peakHeight * (255 / (LEDS_PER_SEGMENT * 2)));  
+}
+
+void waterfall(int band) {
+  int xStart = LEDS_PER_SEGMENT * 2 * band;
+  //double highestBandValue = 60000;        // Set this to calibrate your waterfall
+
+  
+
+  // Move bar up
+  for (int y = (LEDS_PER_SEGMENT * 2)-1; y >= 1; y--) {
+    LEDs[ANALYZER[xStart + y]] = LEDs[ANALYZER[xStart + y-1]];
+  }
+
+  // Draw bottom point
+  LEDs[ANALYZER[xStart]] = CHSV(constrain(map(bandValues[band], 0,Amplitude*TOP, 160,0), 0,160), 255, 255);  
+}
 
 void endCountdown() {  //countdown timer has reached 0, sound alarm and flash End for 30 seconds
   //  Serial.println("endcountdown function");
