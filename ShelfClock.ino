@@ -79,6 +79,13 @@ int decay_check = 0;
 long pre_react = 0; // NEW SPIKE CONVERSION
 long react = 0; // NUMBER OF LEDs BEING LIT
 long post_react = 0; // OLD SPIKE CONVERSION
+long divider = 100;	// audio signal divider
+long max_audio = 0;
+int decayD = 0;
+#define decayDivider 30
+#define minDivider 100
+#define dividerMinus 15
+
 const int colorWheelSpeed = 3;
 int sleepTimerCurrent = 0;
 int isAsleep = 0;
@@ -1408,8 +1415,37 @@ void SpectrumAnalyzer() {    //mostly from github.com/justcallmekoko/Arduino-Fas
   const TProgmemRGBPalette16 FireColors2 = {0xFFFF99, 0xFFFF66, 0xFFFF33, 0xFFFF00, 0xFFCC00, 0xFF9900, 0xFF6600, 0xFF3300, 0xFF3300, 0xFF0000, 0xCC0000, 0x990000, 0x660000, 0x330000, 0x110000};
   const TProgmemRGBPalette16 FireColors3 = {0xFFFF66, 0xFFFF33, 0xFFFF00, 0xFFCC00, 0xFF9900, 0xFF6600, 0xFF3300, 0xFF3300, 0xFF0000, 0xCC0000, 0x990000, 0x660000, 0x330000, 0x110000};
   int audio_input = analogRead(MIC_IN_PIN); // ADD x2 HERE FOR MORE SENSITIVITY  
+
+  if (audio_input > max_audio) {
+    max_audio = audio_input;
+    
+    if (divider < audio_input) {
+      divider = divider + (audio_input / 10); // reduce gain by 10% of input signal
+      
+      if (divider > audio_input) 
+        divider = audio_input - (audio_input / 10); // allow more often fill all segments
+    }
+  }
+  else {
+    decayD++;
+    if (decayD > decayDivider) {
+      max_audio = audio_input;
+      decayD = 0;
+      if (divider > minDivider)
+        divider = divider - dividerMinus;
+    }
+  }
+  
+  /*Serial.print(audio_input);
+  Serial.print(" ");
+  Serial.print(max_audio);
+  Serial.print(" ");
+  Serial.print(divider);
+  Serial.print(" ");
+  Serial.println(decayD);*/
+     
   if (audio_input > 0) {
-    pre_react = ((long)SPECTRUM_PIXELS * (long)audio_input) / 1023L; // TRANSLATE AUDIO LEVEL TO NUMBER OF LEDs
+    pre_react = ((long)SPECTRUM_PIXELS * (long)audio_input) / divider; // TRANSLATE AUDIO LEVEL TO NUMBER OF LEDs
     if (pre_react > react) // ONLY ADJUST LEVEL OF LED IF LEVEL HIGHER THAN CURRENT LEVEL
       react = pre_react;
    }
