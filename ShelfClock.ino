@@ -19,7 +19,7 @@
 #include <Update.h>
 #include "RTClib.h"
 #include <AutoConnect.h>
-
+#include "MultiMap.h"
 
 #define LED_TYPE  WS2812B
 #define COLOR_ORDER GRB
@@ -46,7 +46,7 @@
 #define SPOT_LEDS (NUMBER_OF_DIGITS * 2)        // Number of Spotlight leds
 #define NUM_LEDS  (SEGMENTS_LEDS + SPOT_LEDS)   // Number of all leds
 
-#define PHOTO_SAMPLES 15  //number of samples to take from the photoresister
+#define PHOTO_SAMPLES 1  //number of samples to take from the photoresister
 
 #if LEDS_PER_SEGMENT == 6
 #define seg(n) n*LEDS_PER_SEGMENT, n*LEDS_PER_SEGMENT+1, n*LEDS_PER_SEGMENT+2, n*LEDS_PER_SEGMENT+3, n*LEDS_PER_SEGMENT+4, n*LEDS_PER_SEGMENT+5
@@ -79,12 +79,15 @@ int decay_check = 0;
 long pre_react = 0; // NEW SPIKE CONVERSION
 long react = 0; // NUMBER OF LEDs BEING LIT
 long post_react = 0; // OLD SPIKE CONVERSION
-long divider = 100;	// audio signal divider
+long divider = 100; // audio signal divider
 long max_audio = 0;
 int decayD = 0;
 #define decayDivider 30
 #define minDivider 100
 #define dividerMinus 15
+#define PHOTO_SIZE 5
+int photo_in[PHOTO_SIZE] = {   0, 150, 1180, 2170, 4095};
+int photo_out[PHOTO_SIZE] = {255, 160,   40,   14,    2};
 
 const int colorWheelSpeed = 3;
 int sleepTimerCurrent = 0;
@@ -672,7 +675,7 @@ void loop(){
     if (abs(currentTimeMin - previousTimeMin) >= 1) { //run every minute
       previousTimeMin = currentTimeMin; 
       randomMinPassed = 1; 
-      GetBrightnessLevel(); 
+      //GetBrightnessLevel();
       if (scrollFrequency == 1 && (suspendType == 0 || isAsleep == 0) && scrollOverride == 1 && ((clockMode != 11) && (clockMode != 1) && (clockMode != 4))) {displayScrollMode();}
       if (scrollFrequency == 1 && randomSpectrumMode == 1 && clockMode == 9) {allBlank(); spectrumMode = random(11);}
       } //end of run every minute
@@ -718,8 +721,8 @@ void loop(){
     if (abs(currentTimeMonth - previousTimeMonth) >= 1) { previousTimeMonth = currentTimeMonth; randomMonthPassed = 1;}
 
     if (realtimeMode == 0) {    //give autodim sensors some CPU time, update display
-       GetBrightnessLevel();        
-       FastLED.show();
+       //GetBrightnessLevel();        
+       //FastLED.show();
     }
     //give the various clock modes CPU time every 1 seconds
     if ((suspendType == 0 || isAsleep == 0) && clockMode == 0) {
@@ -794,7 +797,7 @@ void displayTimeMode() {  //main clock function
   if ((ClockColorSettings == 3 && pastelColors == 0) && ( (ColorChangeFrequency == 0 ) || (ColorChangeFrequency == 1 && randomMinPassed == 1) || (ColorChangeFrequency == 2 && randomHourPassed == 1) || (ColorChangeFrequency == 3 && randomDayPassed == 1) || (ColorChangeFrequency == 4 && randomWeekPassed == 1) || (ColorChangeFrequency == 5 && randomMonthPassed == 1) )) { hourColor = CHSV(random(0, 255), 255, 255);  minColor = hourColor;}
   if ((ClockColorSettings == 3 && pastelColors == 1) && ( (ColorChangeFrequency == 0 ) || (ColorChangeFrequency == 1 && randomMinPassed == 1) || (ColorChangeFrequency == 2 && randomHourPassed == 1) || (ColorChangeFrequency == 3 && randomDayPassed == 1) || (ColorChangeFrequency == 4 && randomWeekPassed == 1) || (ColorChangeFrequency == 5 && randomMonthPassed == 1) )) { hourColor = CRGB(random(0, 255), random(0, 255), random(0, 255));  minColor = hourColor;}
   if ((clockDisplayType == 3)) {          //Blinking Center Light
-  	if (h1 > 0) {
+    if (h1 > 0) {
       tinyhourColor = hourColor;
       if (ClockColorSettings == 4 && pastelColors == 0){ tinyhourColor = CHSV(random(0, 255), 255, 255); }
       if (ClockColorSettings == 4 && pastelColors == 1){ tinyhourColor = CRGB(random(0, 255), random(0, 255), random(0, 255)); }
@@ -802,9 +805,9 @@ void displayTimeMode() {  //main clock function
       if (ClockColorSettings == 4 && pastelColors == 0){ tinyhourColor = CHSV(random(0, 255), 255, 255); }
       if (ClockColorSettings == 4 && pastelColors == 1){ tinyhourColor = CRGB(random(0, 255), random(0, 255), random(0, 255)); }
         for (int i=(33*LEDS_PER_SEGMENT); i<(34*LEDS_PER_SEGMENT); i++) { LEDs[i] = tinyhourColor;}
-  	} else {
-  	    for (int i=(32*LEDS_PER_SEGMENT); i<(34*LEDS_PER_SEGMENT); i++) { LEDs[i] = CRGB::Black;}
-  	  }
+    } else {
+        for (int i=(32*LEDS_PER_SEGMENT); i<(34*LEDS_PER_SEGMENT); i++) { LEDs[i] = CRGB::Black;}
+      }
       displayNumber(h2,5,hourColor);
       displayNumber(m1,2,minColor);
       displayNumber(m2,0,minColor); 
@@ -1725,6 +1728,9 @@ void scroll(String IncomingString) {    //main scrolling function
       }    //slow down on non-padded parts with web server polls
     } 
   }
+  // Measure brightness
+  allBlank();
+  allBlank();
 } //end of scroll function
 
 
@@ -1794,8 +1800,9 @@ void GetBrightnessLevel() {   //samples the photoresister and set brightness
      sumBrightness += photoresisterReadings[i];  // add all the current readings together
     }
  //   Serial.println(analogRead(PHOTORESISTER_PIN));
-   // lightSensorValue = 255 - (((sumBrightness / PHOTO_SAMPLES) * (215)) / 4095);  //linear conversion of 0-4095 to 255 to 40, after getting the average of the readings
-  lightSensorValue = 275 - (((sumBrightness / PHOTO_SAMPLES) * (245)) / 4095);  //linear conversion of 0-4095 to 305 to 10 (a little brighter), after getting the average of the readings
+ lightSensorValue = multiMap<int>(sumBrightness / PHOTO_SAMPLES, photo_in, photo_out, PHOTO_SIZE);
+//    lightSensorValue = 255 - (((sumBrightness / PHOTO_SAMPLES) * (254)) / 4095);  //linear conversion of 0-4095 to 255 to 40, after getting the average of the readings
+  //lightSensorValue = 275 - (((sumBrightness / PHOTO_SAMPLES) * (245)) / 4095);  //linear conversion of 0-4095 to 305 to 10 (a little brighter), after getting the average of the readings
   if (lightSensorValue > 255) {lightSensorValue = 255;} //constrain brightness
     if (brightness != 10) {  //if not set to auto-dim just use user set brightness
       FastLED.setBrightness(brightness);
@@ -1859,6 +1866,8 @@ void allBlank() {   //clears all non-shelf LEDs to black
   randomDayPassed = 1;
   randomWeekPassed = 1;
   randomMonthPassed = 1;
+  // Measure Brightness when all segments are off
+  GetBrightnessLevel();
 }  // end of all-blank
 
 
@@ -1912,8 +1921,8 @@ void ShelfDownLights() {  //turns on the drop lights on the underside of each sh
  } else {  //or turn them all off
   for (int i=SEGMENTS_LEDS; i<NUM_LEDS; i++) {
     LEDs[i] = CRGB::Black;
-    FastLED.show();
   }
+  FastLED.show();
  }
  
 }//end of ShelfDownLights 
@@ -2901,6 +2910,7 @@ void loadWebPageHandlers() {
     preferences.putInt("realtimeMode", realtimeMode);  
     server.send(200, "text/json", "{\"result\":\"ok\"}");
     printLocalTime(); 
+	breakOutSet = 1;	
   }); 
 
   server.on("/goCountdownMode", HTTP_POST, []() {    
@@ -3021,14 +3031,14 @@ void loadWebPageHandlers() {
 // Get/Load Presets Handlers
   server.on("/getPreset1", HTTP_POST, []() {   
     getpreset1();   
-    GetBrightnessLevel();        
+    //GetBrightnessLevel();        
     allBlank(); 
     server.send(200, "text/json", "{\"result\":\"ok\"}");
   });
   
   server.on("/getPreset2", HTTP_POST, []() {   
     getpreset2();   
-    GetBrightnessLevel();        
+    //GetBrightnessLevel();        
     allBlank(); 
     server.send(200, "text/json", "{\"result\":\"ok\"}");
   });
