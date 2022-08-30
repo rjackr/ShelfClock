@@ -223,6 +223,28 @@ RTC_DS3231 rtc;
 AutoConnect      Portal(server);
 AutoConnectConfig  Config;
 
+//#define UseThingSpeak
+// To use this feature you must register at https://thingspeak.com/ and add new Channel
+#ifdef UseThingSpeak
+#include <ThingSpeak.h>
+WiFiClient  TSclient;
+// At ThingSpeak Channel settings page Check Fields from 1 to 5 and fill names
+#define TStemp 1
+#define TShum 2
+#define TSpress 3
+#define TSbri 4
+#define TScnt 5
+#define TSChNum 123 // Enter Your Channel number
+#define TSApiKey "abc" // Enter Your Write Api Key
+#define TSdelay 2 // How many minutes between sending data to ThingSpeak
+int TSmin = 0;
+float temperature;
+float humidity;
+float pressure;
+int TSstatus = 0; // the number of times data has been sent
+#endif
+int AVGbrightness;
+
 
 //how many clients should be able to telnet to this ESP
 #define MAX_SRV_CLIENTS 1
@@ -899,6 +921,9 @@ void setup() {
   rtttl::begin(BUZZER_PIN, smb_under);  //play mario sound and set initial brightness level
   while( !rtttl::done() ){GetBrightnessLevel(); rtttl::play();}
   
+  #ifdef UseThingSpeak
+  ThingSpeak.begin(TSclient);  // Initialize ThingSpeak
+  #endif
 }    //end of Setup()
 
 
@@ -945,6 +970,26 @@ void loop(){
       //GetBrightnessLevel();
       if (scrollFrequency == 1 && (suspendType == 0 || isAsleep == 0) && scrollOverride == 1 && ((clockMode != 11) && (clockMode != 1) && (clockMode != 4))) {displayScrollMode();}
       if (scrollFrequency == 1 && randomSpectrumMode == 1 && clockMode == 9) {allBlank(); spectrumMode = random(11);}
+      #ifdef UseThingSpeak
+      if (TSmin < 1) {
+        TSmin = TSdelay;
+        ThingSpeak.setField(TStemp, temperature);
+        ThingSpeak.setField(TShum, humidity);
+        ThingSpeak.setField(TSpress, pressure);        
+        ThingSpeak.setField(TSbri, AVGbrightness);        
+        ThingSpeak.setField(TScnt, TSstatus);        
+        int res = ThingSpeak.writeFields(TSChNum, TSApiKey);
+        char buffer[40];
+        if ( res != 200)
+          sprintf(buffer, "TS send error: %d\r\n", res);
+        else
+          sprintf(buffer, "TS send OK\r\n");
+        
+        prn(buffer);
+        TSstatus++;
+        }
+      TSmin--;
+      #endif
       } //end of run every minute
 
     if ((m2 == 0 || m2 == 5) && (secs == 0)) { //run every 5 minutes
@@ -1299,6 +1344,10 @@ void displayTemperatureMode() {   //miain temp function
   }
 #endif
   float correctedTemp = sensorTemp + temperatureCorrection;
+  #ifdef UseThingSpeak
+  humidity = h;
+  temperature = correctedTemp;
+  #endif
   if (temperatureSymbol == 39) {  correctedTemp = ((sensorTemp * 1.8000) + 32) + temperatureCorrection; }
   byte t1 = 0;
   byte t2 = 0;
@@ -1409,7 +1458,9 @@ void displayHumidityMode() {   //main humidity function
     return;
   }
 #endif
-  
+  #ifdef UseThingSpeak
+  humidity = sensorHumi;
+  #endif 
   byte t1 = 0;
   byte t2 = 0;
   int humiDecimal = sensorHumi * 10;
@@ -1512,6 +1563,11 @@ void displayScrollMode(){   //scrollmode for displaying clock things not just te
     p = p / 100; // convert to hPa
 #endif
     float correctedTemp = sensorTemp + temperatureCorrection;
+    #ifdef UseThingSpeak
+    humidity = h;
+    temperature = correctedTemp;
+    pressure = p;
+    #endif
     if (temperatureSymbol == 39) {  correctedTemp = ((sensorTemp * 1.8000) + 32) + temperatureCorrection; }
     if (timeinfo.tm_wday == 1)    {sprintf(DOW,"%s","Mon    ");}
     if (timeinfo.tm_wday == 2)    {sprintf(DOW,"%s","tUES    ");}
@@ -2309,8 +2365,9 @@ void GetBrightnessLevel() {   //samples the photoresister and set brightness
     {
      sumBrightness += photoresisterReadings[i];  // add all the current readings together
     }
+    AVGbrightness = sumBrightness / PHOTO_SAMPLES;
     char buffer[40];
-    sprintf(buffer, "%d", sumBrightness / PHOTO_SAMPLES);
+    sprintf(buffer, "%d", AVGbrightness);
     prn(buffer);
  //   Serial.println(analogRead(PHOTORESISTER_PIN));
  lightSensorValue = multiMap<int>(sumBrightness / PHOTO_SAMPLES, photo_in, photo_out, PHOTO_SIZE);
